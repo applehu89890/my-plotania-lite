@@ -1,0 +1,148 @@
+.app-root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #1f2933;
+}
+
+/* 顶部栏 */
+.top-bar {
+  height: 56px;
+  padding: 0 16px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f9fafb;
+}
+
+.top-bar-left .app-name {
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-title {
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 14px;
+}
+
+.save-status {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* 主体布局 */
+.main-layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* 编辑区 */
+.editor-section {
+  flex: 3;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-right: 1px solid #f3f4f6;
+  gap: 8px;
+  background: #dce7f5; /* 新颜色：稍深淡蓝色 */
+}
+
+
+.editor-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.editor-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+/* 工具栏 */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.toolbar button {
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.toolbar button:hover {
+  background: #e5e7eb;
+}
+
+/* 占位编辑器 */
+.editor-textarea {
+  flex: 1;
+  min-height: 260px;
+  resize: none;
+  border-radius: 6px;
+  border: 1px solid #bfcde0; /* 更柔和蓝灰边框 */
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  background: #eef4fb; /* 新颜色：编辑区域淡蓝色 */
+  color: #1f2933; /* 深灰文字，更清晰 */
+}
+
+/* 侧边栏 */
+.sidebar {
+  flex: 1.4;
+  padding: 16px;
+  background: #f9fafb;
+  overflow-y: auto;
+}
+
+.sidebar h3 {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.sidebar-block {
+  margin-bottom: 16px;
+}
+
+.sidebar-block h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.sidebar-text {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+/* 底部建议面板 */
+.suggestion-panel {
+  border-top: 1px solid #e5e7eb;
+  padding: 10px 16px;
+  background: #ffffff;
+  font-size: 14px;
+}
+
+.suggestion-panel h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
