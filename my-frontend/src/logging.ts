@@ -1,0 +1,30 @@
+// src/logging.ts
+import { getSessionId } from "./session";
+
+const API_BASE = "http://localhost:4001";
+
+export async function logEvent(params: {
+  eventType: string;
+  documentId?: string;
+  toolName?: string;
+  selectionStart?: number;
+  selectionEnd?: number;
+  docLength?: number;
+  payload?: any;
+}) {
+  const sessionId = getSessionId();
+
+  try {
+    await fetch(`${API_BASE}/api/log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        ...params,
+      }),
+    });
+  } catch (err) {
+    // 日志失败不要影响用户体验
+    console.warn("logEvent failed", err);
+  }
+}

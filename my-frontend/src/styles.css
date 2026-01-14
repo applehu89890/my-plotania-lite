@@ -1,0 +1,707 @@
+/* 整个应用容器 */
+.app-root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #1f2933;
+}
+
+.app-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* 顶部栏 */
+.top-bar {
+  height: 56px;
+  padding: 0 16px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f9fafb;
+}
+
+/* ===== Module C: Human / AI Attribution Panel (旧顶部版，目前可不用) ===== */
+.attribution-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  font-size: 12px;
+  line-height: 1.2;
+  margin: 0 12px;
+}
+
+.attr-row {
+  display: flex;
+  justify-content: space-between;
+  min-width: 110px; /* 保证数字不会太挤 */
+}
+
+.attr-label {
+  color: #6b7280; /* 灰一点 */
+}
+
+.attr-value {
+  font-weight: 600;
+  color: #111827;
+}
+
+/* 旧样式（可以不再使用） */
+.doc-title {
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 新顶部栏：文档标题输入框 */
+.doc-title-input {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 14px;
+  min-width: 220px;
+  background: rgb(34, 33, 33);
+}
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 平台大标题：加粗 + 字体更大 */
+.app-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.save-status {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.save-status-saved {
+  color: #059669; /* green */
+}
+
+.save-status-editing {
+  color: #f97316; /* orange */
+}
+
+.save-status-saving {
+  color: #2563eb; /* blue */
+}
+
+.save-btn {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: white;
+  font-size: 12px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.05s ease;
+}
+
+.save-btn:hover {
+  background: #1d4ed8;
+}
+
+.save-btn:active {
+  background: #1e40af;
+  transform: translateY(1px);
+}
+
+/* ===== 主体布局：左编辑区 + 右建议区 ===== */
+
+.workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  background: #edf2ff; /* 整体浅一点的蓝白背景 */
+}
+
+/* 左侧编辑区域 */
+.editor-pane {
+  flex: 3;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-right: 1px solid #e5e7eb;
+  gap: 12px;
+  background: #dce7f5; /* 外层稍深的蓝色 */
+}
+
+/* 顶部四个 AI 按钮区域 */
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* AI 按钮 */
+.action-btn {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #3b82f6;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  transition: background-color 0.15s ease, transform 0.05s ease,
+    box-shadow 0.15s ease;
+}
+
+.action-btn:hover:not(:disabled) {
+  background: #2563eb;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.18);
+}
+
+.action-btn:active:not(:disabled) {
+  background: #1d4ed8;
+  transform: translateY(1px);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+}
+
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ===== TipTap 编辑器区域 ===== */
+
+.editor-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-wrapper .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.editor-wrapper .toolbar button {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.editor-wrapper .toolbar button:hover {
+  background: #f3f4ff;
+  border-color: #c7d2fe;
+}
+
+.editor-wrapper .toolbar button.active {
+  background: #e0edff;
+  border-color: #93c5fd;
+}
+
+/* TipTap 内容区 */
+.editor-content {
+  flex: 1;
+  min-height: 260px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #bfcde0;
+  background: #eef4fb;
+  color: #1f2933;
+  overflow-y: auto;
+}
+
+.editor-content p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* 强制英文字体支持 italic */
+.editor-content .ProseMirror {
+  font-family: Arial, Helvetica, sans-serif !important;
+}
+
+/* ===== 右侧：AI 建议区 ===== */
+
+.feedback-pane {
+  flex: 1.4;
+  padding: 16px;
+  background: #f9fafb;
+  overflow-y: auto;
+}
+
+.feedback-pane h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.suggestion-meta {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.suggestion-compare {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.suggestion-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.suggestion-column h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.suggestion-text {
+  white-space: pre-wrap;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 280px;
+  overflow: auto;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.25);
+}
+
+.suggestion-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 14px;
+}
+
+/* 接受按钮 */
+.primary-btn,
+.secondary-btn {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.primary-btn {
+  border: none;
+  background: #4b5563;
+  color: #ffffff;
+  transition: background-color 0.15s ease, transform 0.05s ease;
+}
+
+.primary-btn:hover {
+  background: #374151;
+}
+
+.primary-btn:active {
+  background: #111827;
+  transform: translateY(1px);
+}
+
+.secondary-btn {
+  border: 1px solid #9ca3af;
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.secondary-btn:hover {
+  background: #d1d5db;
+  border-color: #6b7280;
+}
+
+/* ===== 其他布局（可保留） ===== */
+
+.main-layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.editor-section {
+  flex: 3;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-right: 1px solid #f3f4f6;
+  gap: 8px;
+  background: #dce7f5;
+}
+
+.sidebar {
+  flex: 1.4;
+  padding: 16px;
+  background: #f9fafb;
+  overflow-y: auto;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+#root {
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  height: 100%;
+}
+
+/* 调整 suggestion actions 区域 */
+.feedback-pane .suggestion-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-start;
+  gap: 16px;
+}
+
+.feedback-pane .suggestion-actions .primary-btn,
+.feedback-pane .suggestion-actions .secondary-btn {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.3;
+}
+
+.feedback-pane .suggestion-actions .primary-btn {
+  border: 1px solid #9ca3af;
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.feedback-pane .suggestion-actions .primary-btn:hover {
+  background: #d1d5db;
+  border-color: #6b7280;
+}
+
+.feedback-pane .suggestion-actions .primary-btn:active {
+  background: #9ca3af;
+  transform: translateY(1px);
+}
+
+.feedback-pane .suggestion-actions .secondary-btn {
+  border: 1px solid #d1d5db;
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.feedback-pane .suggestion-actions .secondary-btn:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+/* ================================
+   Module B — Virtual Reader Personas
+   ================================ */
+
+.virtual-readers {
+  margin-top: 16px;
+}
+
+.persona-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Persona 卡片 */
+.persona-card {
+  padding: 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #d0d7e2;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.persona-name {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #1f2937;
+}
+
+.persona-tagline {
+  font-size: 13px;
+  color: #4b5563;
+  margin-bottom: 6px;
+}
+
+.persona-focus {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 10px;
+}
+
+/* Persona 按钮 */
+.persona-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  background: #3b82f6;
+  color: white;
+  transition: background-color 0.15s ease, transform 0.05s ease;
+}
+
+.persona-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.persona-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ================================
+   Persona Feedback Comments List
+   ================================ */
+
+.persona-feedback-list {
+  margin-top: 20px;
+  padding-top: 8px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.persona-comment-card {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #d0d7e2;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* Resolved 状态下整体灰一点 */
+.persona-comment-resolved {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+  opacity: 0.85;
+}
+
+/* 顶部：persona 标签 + Resolved 标记 */
+.persona-comment-header {
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.persona-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  background: #e0f2fe; /* Light blue */
+  color: #0369a1;      /* Dark blue */
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Resolved 小标签 */
+.persona-resolved-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #065f46;
+  background: #d1fae5;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* 点击 excerpt 可以高亮编辑器里对应段落 */
+.persona-excerpt {
+  font-size: 13px;
+  font-style: italic;
+  color: #374151;
+  margin-bottom: 8px;
+  padding-left: 4px;
+  border-left: 3px solid #c7d2fe;
+  cursor: pointer;
+}
+
+.persona-excerpt:hover {
+  background: #eef2ff;
+}
+
+/* Comment / Suggestion 文本 */
+.persona-comment-body {
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: #1f2937;
+}
+
+.persona-suggestion {
+  font-size: 13px;
+  color: #111827;
+}
+
+/* 底部操作按钮：Mark resolved / Hide */
+.persona-comment-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.persona-action-btn {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #e5e7eb;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    transform 0.05s ease;
+}
+
+.persona-action-btn:hover {
+  background: #d1d5db;
+  border-color: #9ca3af;
+}
+
+.persona-action-btn:active {
+  transform: translateY(1px);
+}
+
+/* secondary 按钮（Hide）稍微淡一点 */
+.persona-action-btn.secondary {
+  background: #f3f4f6;
+}
+
+.persona-action-btn.secondary:hover {
+  background: #e5e7eb;
+}
+
+/* ================================
+   Module C — Attribution Statistics 卡片
+   ================================ */
+
+.attribution-section {
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+.attribution-section h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.attribution-cards {
+  display: flex;
+  gap: 8px;
+}
+
+.attrib-card {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.attrib-card-active {
+  background: #e0edff;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.6);
+}
+
+.attrib-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #4b5563;
+}
+
+.attrib-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.ai-dot {
+  background: #2563eb;
+}
+
+.human-dot {
+  background: #111827;
+}
+
+.attrib-label-text {
+  font-weight: 500;
+}
+
+.attrib-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+/* ===== C2: Show AI origins toggle ===== */
+
+.ai-origins-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #4b5563;
+}
+
+.ai-origins-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+}
+
+/* ===== AI 文本高亮（正文里显示 AI 段落） ===== */
+
+.ai-text {
+  color: #2563eb; /* 蓝色字体 */
+  background: rgba(129, 140, 248, 0.12); /* very light indigo tint */
+  border-bottom: 1px dotted #4f46e5; /* dotted underline */
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+/* 关闭 “Show AI origins” 时，不展示高亮效果 */
+.ai-origins-hidden .ai-text {
+  color: inherit;
+  background: none;
+  border-bottom: none;
+  padding: 0;
+}
