@@ -1,0 +1,60 @@
+// prisma/schema.prisma
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+/**
+ * ========= 数据模型（表结构） =========
+ */
+
+// 匿名用户 / 未来可以绑到真实账号
+model User {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  sessions  Session[]
+  documents Document[]
+}
+
+// 浏览器会话（一个浏览器一个 sessionId）
+model Session {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+}
+
+
+
+// 文档（你以后可以在这里保存 editor 的内容）
+model Document {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  title   String
+  content String
+
+  user   User?  @relation(fields: [userId], references: [id])
+  userId String?
+}
+
+
+// 交互日志（最重要）
+model LogEvent {
+  id             String   @id @default(cuid())
+  sessionId      String
+  documentId     String?
+  eventType      String
+  toolName       String?
+  selectionStart Int?
+  selectionEnd   Int?
+  docLength      Int?
+  payloadJson    String?
+  createdAt      DateTime @default(now())
+}
