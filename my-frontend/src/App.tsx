@@ -1,5 +1,5 @@
 // App.tsx
-import React, { useState } from "react";
+import { useState } from "react";
 import EditorWithToolbar from "./EditorWithToolbar";
 import "./styles.css";
 import { logEvent } from "./logging";
@@ -178,24 +178,24 @@ function App() {
   };
 
   /* ---------------- Utility: Get selected text ---------------- */
-  const getSelectedOrFullText = (): string => {
-    if (!editorInstance) return editorText;
+  // const getSelectedOrFullText = (): string => {
+  //   if (!editorInstance) return editorText;
 
-    const editor = editorInstance;
-    const { from, to } = editor.state.selection;
+  //   const editor = editorInstance;
+  //   const { from, to } = editor.state.selection;
 
-    let selected = editor.state.doc.textBetween(from, to, "\n");
+  //   let selected = editor.state.doc.textBetween(from, to, "\n");
 
-    if (!selected || selected.trim().length === 0) {
-      selected = editor.state.doc.textBetween(
-        0,
-        editor.state.doc.content.size,
-        "\n"
-      );
-    }
+  //   if (!selected || selected.trim().length === 0) {
+  //     selected = editor.state.doc.textBetween(
+  //       0,
+  //       editor.state.doc.content.size,
+  //       "\n"
+  //     );
+  //   }
 
-    return selected.trim();
-  };
+  //   return selected.trim();
+  // };
 
   /* ---------------- Module A: build transform payload ---------------- */
 

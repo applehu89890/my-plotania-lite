@@ -5,6 +5,7 @@ const API_BASE = "http://localhost:4001";
 
 export async function logEvent(params: {
   eventType: string;
+  sessionId?: string; // ✅ 加这一行
   documentId?: string;
   toolName?: string;
   selectionStart?: number;
@@ -24,7 +25,6 @@ export async function logEvent(params: {
       }),
     });
   } catch (err) {
-    // 日志失败不要影响用户体验
     console.warn("logEvent failed", err);
   }
 }

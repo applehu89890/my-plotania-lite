@@ -1,5 +1,5 @@
 // EditorWithToolbar.tsx
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import TextAlign from "@tiptap/extension-text-align";
@@ -32,6 +32,12 @@ const AIText = Mark.create({
   },
 });
 
+type EditorWithToolbarProps = {
+  onChange: (text: string) => void;
+  onEditorReady?: (editor: any) => void; // 先用 any，后面想严谨再换 TipTap Editor 类型
+  showAIOrigins?: boolean;
+};
+
 /**
  * props:
  * - onChange(text: string): 每次内容更新时，把纯文本抛给父组件
@@ -42,7 +48,7 @@ const EditorWithToolbar = ({
   onChange,
   onEditorReady,
   showAIOrigins = true,
-}) => {
+}: EditorWithToolbarProps) => {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -58,9 +64,7 @@ const EditorWithToolbar = ({
     content: "<p>Start writing your story here...</p>",
     onUpdate({ editor }) {
       const text = editor.getText();
-      if (onChange) {
-        onChange(text);
-      }
+      onChange(text);
     },
   });
 
@@ -68,24 +72,14 @@ const EditorWithToolbar = ({
   useEffect(() => {
     if (!editor) return;
 
-    if (onEditorReady) {
-      onEditorReady(editor);
-    }
-
-    if (onChange) {
-      const initialText = editor.getText();
-      onChange(initialText);
-    }
+    onEditorReady?.(editor);
+    onChange(editor.getText());
   }, [editor, onEditorReady, onChange]);
 
   if (!editor) return null;
 
   return (
-    <div
-      className={
-        "editor-wrapper " + (showAIOrigins ? "" : "ai-origins-hidden")
-      }
-    >
+    <div className={"editor-wrapper " + (showAIOrigins ? "" : "ai-origins-hidden")}>
       <div className="toolbar">
         <button onClick={() => editor.chain().focus().undo().run()}>↶</button>
         <button onClick={() => editor.chain().focus().redo().run()}>↷</button>
@@ -100,17 +94,13 @@ const EditorWithToolbar = ({
         </button>
         <button
           className={editor.isActive("heading", { level: 1 }) ? "active" : ""}
-          onClick={() =>
-            editor.chain().focus().toggleHeading({ level: 1 }).run()
-          }
+          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
         >
           H1
         </button>
         <button
           className={editor.isActive("heading", { level: 2 }) ? "active" : ""}
-          onClick={() =>
-            editor.chain().focus().toggleHeading({ level: 2 }).run()
-          }
+          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
         >
           H2
         </button>
