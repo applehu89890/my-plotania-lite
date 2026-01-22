@@ -1,52 +1,83 @@
-// index.js
+// server/index.js
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config(); // 读取 .env
+require("dotenv").config();
 
 const { PrismaClient } = require("@prisma/client");
 const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 
-// 直接按照官方文档，用 url 初始化 Adapter
+// ------------------------------
+// Prisma (SQLite - dev/local friendly)
+// NOTE: On cloud, SQLite file can be unstable; later migrate to Postgres.
+// ------------------------------
 const adapter = new PrismaBetterSqlite3({
   url: process.env.DATABASE_URL || "file:./dev.db",
 });
-
-// 传 adapter 给 PrismaClient（engine type = "client" 的要求）
 const prisma = new PrismaClient({ adapter });
 
-
-
-
+// ------------------------------
+// App + Middleware (ONLY ONCE, BEFORE routes)
+// ------------------------------
 const app = express();
-app.use(cors());
 app.use(express.json());
 
-// Node 18+ 自带 fetch，如果你用更老版本再单独装 node-fetch
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// ✅ CORS: allow local + your Vercel domain + optional extra origin (Render deploy etc.)
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "https://my-plotania-lite.vercel.app",
+];
 
-// 简单检查一下 API key
+// You can set: ALLOWED_ORIGINS="https://xxx.vercel.app,https://yyy.onrender.com"
+const extraOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const allowedOrigins = Array.from(
+  new Set([...DEFAULT_ALLOWED_ORIGINS, ...extraOrigins])
+);
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // allow non-browser clients (curl/postman/no origin)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(
+        new Error(
+          `CORS blocked: Origin ${origin} not allowed. Allowed: ${allowedOrigins.join(
+            ", "
+          )}`
+        )
+      );
+    },
+    methods: ["GET", "POST", "OPTIONS"],
+    credentials: false,
+  })
+);
+
+// Node 18+ has fetch
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 if (!OPENAI_API_KEY) {
   console.warn(
-    "[WARN] OPENAI_API_KEY is not set. Please create a .env file and set OPENAI_API_KEY=..."
+    "[WARN] OPENAI_API_KEY is not set. Set it in Render/Env or local .env"
   );
 }
 
-/* =========================================================
- * 健康检查接口（方便测试后端是否正常）
- * =======================================================*/
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true });
-});
+// ------------------------------
+// Health checks
+// ------------------------------
+app.get("/health", (req, res) => res.json({ ok: true }));
+app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-// 原来的测试接口
+// Basic hello
 app.get("/api/hello", (req, res) => {
   res.json({ message: "Server is running!" });
 });
 
-/* =========================================================
- * 核心 0：日志写入接口 /api/log   （Prisma -> SQLite）
- * 前端会调用 logEvent(...) 来打点
- * =======================================================*/
+// ------------------------------
+// Logging: POST /api/log  (Prisma -> SQLite)
+// ------------------------------
 app.post("/api/log", async (req, res) => {
   try {
     const {
@@ -58,7 +89,7 @@ app.post("/api/log", async (req, res) => {
       selectionEnd,
       docLength,
       payload,
-    } = req.body;
+    } = req.body || {};
 
     if (!sessionId || !eventType) {
       return res
@@ -79,22 +110,22 @@ app.post("/api/log", async (req, res) => {
       },
     });
 
-    res.json({ ok: true, id: log.id });
+    return res.json({ ok: true, id: log.id });
   } catch (err) {
     console.error("log error", err);
-    res.status(500).json({ error: "log failed" });
+    return res.status(500).json({ error: "log failed" });
   }
 });
 
-/* =========================================================
- * 核心 1：原来的 AI 写作辅助接口（对整篇 text 处理）
- * POST /api/assist
- * =======================================================*/
+// ------------------------------
+// AI Assist: POST /api/assist   (whole text)
+// body: { text, mode }
+// ------------------------------
 app.post("/api/assist", async (req, res) => {
   console.log("🔥 /api/assist called with:", req.body);
 
   try {
-    const { text, mode } = req.body;
+    const { text, mode } = req.body || {};
 
     if (!text || !mode) {
       return res.status(400).json({ error: "Missing text or mode" });
@@ -103,11 +134,10 @@ app.post("/api/assist", async (req, res) => {
     if (!OPENAI_API_KEY) {
       return res.status(500).json({
         error: "Missing OPENAI_API_KEY",
-        detail: "Please set OPENAI_API_KEY in your .env file.",
+        detail: "Set OPENAI_API_KEY in your environment variables.",
       });
     }
 
-    // 根据 mode 构造不同的指令
     let instruction;
     switch (mode) {
       case "rewrite":
@@ -169,20 +199,20 @@ app.post("/api/assist", async (req, res) => {
       meta: { wordDiff },
     });
   } catch (err) {
-    console.error("Server error:", err);
-    res.status(500).json({ error: "Server error" });
+    console.error("Server error (/api/assist):", err);
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
-/* =========================================================
- * 核心 2：/llm/transform  — 只修改选中的片段
- * 前端会发送：{ action, selectedText, contextBefore, contextAfter }
- * =======================================================*/
+// ------------------------------
+// Transform: POST /llm/transform  (selected text only)
+// body: { action, selectedText, contextBefore, contextAfter }
+// ------------------------------
 app.post("/llm/transform", async (req, res) => {
   console.log("🔥 /llm/transform called with:", req.body);
 
   try {
-    const { action, selectedText, contextBefore, contextAfter } = req.body;
+    const { action, selectedText, contextBefore, contextAfter } = req.body || {};
 
     if (!selectedText || !action) {
       return res
@@ -193,7 +223,7 @@ app.post("/llm/transform", async (req, res) => {
     if (!OPENAI_API_KEY) {
       return res.status(500).json({
         error: "Missing OPENAI_API_KEY",
-        detail: "Please set OPENAI_API_KEY in your .env file.",
+        detail: "Set OPENAI_API_KEY in your environment variables.",
       });
     }
 
@@ -223,8 +253,6 @@ You are helping a writer edit part of a story.
 
 Action: ${action}
 
-Here is the surrounding context of the selected passage.
-
 Context before:
 ${contextBefore || "(none)"}
 
@@ -248,10 +276,7 @@ Return only the revised version of the selected text, with no additional comment
       body: JSON.stringify({
         model: "gpt-4o",
         messages: [
-          {
-            role: "system",
-            content: "You are a helpful creative-writing assistant.",
-          },
+          { role: "system", content: "You are a helpful creative-writing assistant." },
           { role: "user", content: prompt },
         ],
         temperature: 0.8,
@@ -281,18 +306,20 @@ Return only the revised version of the selected text, with no additional comment
     });
   } catch (err) {
     console.error("Server error (/llm/transform):", err);
-    res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
-/* =========================================================
- * 核心 3：/llm/feedback — Virtual Reader Personas
- * =======================================================*/
+// ------------------------------
+// Persona Feedback: POST /llm/feedback
+// body: { persona, text }
+// returns JSON array
+// ------------------------------
 app.post("/llm/feedback", async (req, res) => {
   console.log("🔥 /llm/feedback called with:", req.body);
 
   try {
-    const { persona, text } = req.body;
+    const { persona, text } = req.body || {};
 
     if (!persona || !text) {
       return res.status(400).json({ error: "Missing persona or text" });
@@ -301,7 +328,7 @@ app.post("/llm/feedback", async (req, res) => {
     if (!OPENAI_API_KEY) {
       return res.status(500).json({
         error: "Missing OPENAI_API_KEY",
-        detail: "Please set OPENAI_API_KEY in your .env file.",
+        detail: "Set OPENAI_API_KEY in your environment variables.",
       });
     }
 
@@ -358,10 +385,7 @@ Return ONLY a JSON array, no explanation, no surrounding text.
       body: JSON.stringify({
         model: "gpt-4o",
         messages: [
-          {
-            role: "system",
-            content: "You are a helpful fiction reviewer.",
-          },
+          { role: "system", content: "You are a helpful fiction reviewer." },
           { role: "user", content: userPrompt },
         ],
         temperature: 0.8,
@@ -379,6 +403,7 @@ Return ONLY a JSON array, no explanation, no surrounding text.
     const data = await response.json();
     let content = data.choices?.[0]?.message?.content?.trim() || "[]";
 
+    // strip ```json fences if any
     if (content.startsWith("```")) {
       content = content.replace(/```json/gi, "").replace(/```/g, "").trim();
     }
@@ -388,21 +413,30 @@ Return ONLY a JSON array, no explanation, no surrounding text.
       comments = JSON.parse(content);
       if (!Array.isArray(comments)) comments = [];
     } catch (e) {
-      console.error(
-        "Failed to parse persona feedback JSON. Raw content:",
-        content
-      );
+      console.error("Failed to parse persona feedback JSON. Raw:", content);
       comments = [];
     }
 
     return res.json(comments);
   } catch (err) {
     console.error("Server error (/llm/feedback):", err);
-    res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
-const PORT = 4001;
+// ------------------------------
+// (Optional) Centralized error handler for CORS errors etc.
+// ------------------------------
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err?.message || err);
+  res.status(500).json({ error: "Server error", detail: err?.message || String(err) });
+});
+
+// ------------------------------
+// Start
+// ------------------------------
+const PORT = process.env.PORT || 4001;
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`API listening on ${PORT}`);
+  console.log(`Allowed origins: ${allowedOrigins.join(", ")}`);
 });
