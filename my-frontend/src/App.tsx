@@ -274,7 +274,8 @@ function App() {
       });
 
       // ✅ frontend calls backend; backend calls OpenAI
-      const res = await fetch("http://localhost:4001/llm/transform", {
+      const API_BASE = import.meta.env.VITE_API_BASE;
+      const res = await fetch(`${API_BASE}/llm/transform`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -439,8 +440,8 @@ function App() {
 
     try {
       setPersonaLoadingId(personaId);
-
-      const res = await fetch("http://localhost:4001/llm/feedback", {
+      const API_BASE = import.meta.env.VITE_API_BASE;
+      const res = await fetch(`${API_BASE}/llm/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
