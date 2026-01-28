@@ -1,20 +1,18 @@
 // server/index.js
+console.log("BOOT VERSION: 2026-01-28 prisma7-adapter");
+
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
-// ✅ Only set a default locally (Render env will override)
-if (!process.env.PRISMA_CLIENT_ENGINE_TYPE) {
-  process.env.PRISMA_CLIENT_ENGINE_TYPE = "binary";
-}
-
 const { PrismaClient } = require("@prisma/client");
+const { PrismaPg } = require("@prisma/adapter-pg");
+const { Pool } = require("pg");
 
 // ------------------------------
 // Env checks
 // ------------------------------
 if (!process.env.DATABASE_URL) {
-  // Render 不会加载 .env 文件，所以必须在 Render Dashboard 配 DATABASE_URL
   throw new Error("Missing DATABASE_URL in environment variables.");
 }
 
@@ -23,24 +21,17 @@ if (!OPENAI_API_KEY) {
   console.warn("[WARN] OPENAI_API_KEY is not set.");
 }
 
-// ✅ Default Prisma client (NO datasourceUrl option in Prisma 7.3.0 here)
-const { PrismaClient } = require("@prisma/client");
-const { PrismaPg } = require("@prisma/adapter-pg");
-const { Pool } = require("pg");
-
-if (!process.env.DATABASE_URL) {
-  throw new Error("Missing DATABASE_URL in environment variables.");
-}
-
+// ------------------------------
+// Prisma (Prisma 7: use adapter)
+// ------------------------------
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Render 有时需要 SSL（取决于你的 Postgres 提供方）
-  // 如果你遇到 SSL 相关报错，再把下面打开：
+  // 如果之后遇到 SSL 报错，再打开：
   // ssl: { rejectUnauthorized: false },
 });
-
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
+
 // ------------------------------
 // App + Middleware
 // ------------------------------
@@ -62,7 +53,6 @@ const allowedOrigins = Array.from(
   new Set([...DEFAULT_ALLOWED_ORIGINS, ...extraOrigins])
 );
 
-// ✅ Your Vercel preview pattern (随机前缀会变)
 const isVercelPreviewOrigin = (origin) =>
   /^https:\/\/my-plotania-lite-.*-applehu89890s-projects\.vercel\.app$/.test(
     origin
@@ -71,11 +61,8 @@ const isVercelPreviewOrigin = (origin) =>
 app.use(
   cors({
     origin: function (origin, callback) {
-      // allow server-to-server / curl / Render health checks
       if (!origin) return callback(null, true);
-
       if (allowedOrigins.includes(origin)) return callback(null, true);
-
       if (isVercelPreviewOrigin(origin)) return callback(null, true);
 
       return callback(
@@ -101,7 +88,7 @@ app.get("/api/hello", (req, res) => {
   res.json({ message: "Server is running!" });
 });
 
-// ✅ DB check (verify Render can connect to Postgres)
+// ✅ DB check
 app.get("/api/db-check", async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -148,7 +135,6 @@ app.post("/api/log", async (req, res) => {
         .json({ error: "sessionId and eventType are required" });
     }
 
-    // Ensure session exists (avoid foreign key violation)
     await prisma.session.upsert({
       where: { id: sessionId },
       update: {},
@@ -179,15 +165,9 @@ app.post("/api/log", async (req, res) => {
 // AI Assist: POST /api/assist
 // ------------------------------
 app.post("/api/assist", async (req, res) => {
-  console.log("🔥 /api/assist called with:", req.body);
-
   try {
     const { text, mode } = req.body || {};
-
-    if (!text || !mode) {
-      return res.status(400).json({ error: "Missing text or mode" });
-    }
-
+    if (!text || !mode) return res.status(400).json({ error: "Missing text or mode" });
     if (!OPENAI_API_KEY) {
       return res.status(500).json({
         error: "Missing OPENAI_API_KEY",
@@ -201,16 +181,13 @@ app.post("/api/assist", async (req, res) => {
         instruction = "Rewrite the text for clarity and better readability.";
         break;
       case "expand":
-        instruction =
-          "Expand the text with more detail, while keeping the original meaning.";
+        instruction = "Expand the text with more detail, while keeping the original meaning.";
         break;
       case "shorten":
-        instruction =
-          "Shorten the text while preserving the key information and tone.";
+        instruction = "Shorten the text while preserving the key information and tone.";
         break;
       case "tone":
-        instruction =
-          "Adjust the tone to be more natural, engaging, and suitable for a general reader.";
+        instruction = "Adjust the tone to be more natural, engaging, and suitable for a general reader.";
         break;
       default:
         instruction = "Rewrite and improve the following text.";
@@ -237,23 +214,16 @@ app.post("/api/assist", async (req, res) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("OpenAI API error:", errorText);
-      return res
-        .status(500)
-        .json({ error: "OpenAI API error", detail: errorText });
+      return res.status(500).json({ error: "OpenAI API error", detail: errorText });
     }
 
     const data = await response.json();
-    const aiText =
-      data.choices?.[0]?.message?.content?.trim() ||
-      "No response from AI model.";
+    const aiText = data.choices?.[0]?.message?.content?.trim() || "No response from AI model.";
 
     const originalWordCount = text.trim().split(/\s+/).length;
     const suggestionWordCount = aiText.trim().split(/\s+/).length;
 
-    return res.json({
-      result: aiText,
-      meta: { wordDiff: suggestionWordCount - originalWordCount },
-    });
+    return res.json({ result: aiText, meta: { wordDiff: suggestionWordCount - originalWordCount } });
   } catch (err) {
     console.error("Server error (/api/assist):", err);
     return res.status(500).json({ error: "Server error" });
@@ -264,17 +234,11 @@ app.post("/api/assist", async (req, res) => {
 // Transform: POST /llm/transform
 // ------------------------------
 app.post("/llm/transform", async (req, res) => {
-  console.log("🔥 /llm/transform called with:", req.body);
-
   try {
     const { action, selectedText, contextBefore, contextAfter } = req.body || {};
-
     if (!selectedText || !action) {
-      return res
-        .status(400)
-        .json({ error: "Missing selectedText or action" });
+      return res.status(400).json({ error: "Missing selectedText or action" });
     }
-
     if (!OPENAI_API_KEY) {
       return res.status(500).json({
         error: "Missing OPENAI_API_KEY",
@@ -288,16 +252,13 @@ app.post("/llm/transform", async (req, res) => {
         instruction = "Rewrite the selected text for clarity and flow.";
         break;
       case "expand":
-        instruction =
-          "Expand the selected text with more detail, keeping the same storyline and style.";
+        instruction = "Expand the selected text with more detail, keeping the same storyline and style.";
         break;
       case "shorten":
-        instruction =
-          "Shorten the selected text while keeping the key meaning and tone.";
+        instruction = "Shorten the selected text while keeping the key meaning and tone.";
         break;
       case "tone":
-        instruction =
-          "Adjust the tone of the selected text to be more natural and engaging for general readers.";
+        instruction = "Adjust the tone of the selected text to be more natural and engaging for general readers.";
         break;
       default:
         instruction = "Rewrite and improve the selected text.";
@@ -330,10 +291,7 @@ Return only the revised version of the selected text, with no additional comment
       body: JSON.stringify({
         model: "gpt-4o",
         messages: [
-          {
-            role: "system",
-            content: "You are a helpful creative-writing assistant.",
-          },
+          { role: "system", content: "You are a helpful creative-writing assistant." },
           { role: "user", content: prompt },
         ],
         temperature: 0.8,
@@ -343,23 +301,16 @@ Return only the revised version of the selected text, with no additional comment
     if (!response.ok) {
       const errorText = await response.text();
       console.error("OpenAI API error (transform):", errorText);
-      return res
-        .status(500)
-        .json({ error: "OpenAI API error", detail: errorText });
+      return res.status(500).json({ error: "OpenAI API error", detail: errorText });
     }
 
     const data = await response.json();
-    const aiText =
-      data.choices?.[0]?.message?.content?.trim() ||
-      "No response from AI model.";
+    const aiText = data.choices?.[0]?.message?.content?.trim() || "No response from AI model.";
 
     const originalWordCount = selectedText.trim().split(/\s+/).length;
     const suggestionWordCount = aiText.trim().split(/\s+/).length;
 
-    return res.json({
-      result: aiText,
-      meta: { wordDiff: suggestionWordCount - originalWordCount },
-    });
+    return res.json({ result: aiText, meta: { wordDiff: suggestionWordCount - originalWordCount } });
   } catch (err) {
     console.error("Server error (/llm/transform):", err);
     return res.status(500).json({ error: "Server error" });
@@ -370,15 +321,9 @@ Return only the revised version of the selected text, with no additional comment
 // Persona Feedback: POST /llm/feedback
 // ------------------------------
 app.post("/llm/feedback", async (req, res) => {
-  console.log("🔥 /llm/feedback called with:", req.body);
-
   try {
     const { persona, text } = req.body || {};
-
-    if (!persona || !text) {
-      return res.status(400).json({ error: "Missing persona or text" });
-    }
-
+    if (!persona || !text) return res.status(400).json({ error: "Missing persona or text" });
     if (!OPENAI_API_KEY) {
       return res.status(500).json({
         error: "Missing OPENAI_API_KEY",
@@ -442,9 +387,7 @@ Return ONLY a JSON array (3–6 items). Each item has:
     if (!response.ok) {
       const errorText = await response.text();
       console.error("OpenAI API error (feedback):", errorText);
-      return res
-        .status(500)
-        .json({ error: "OpenAI API error", detail: errorText });
+      return res.status(500).json({ error: "OpenAI API error", detail: errorText });
     }
 
     const data = await response.json();
@@ -475,24 +418,18 @@ Return ONLY a JSON array (3–6 items). Each item has:
 // ------------------------------
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err?.message || err);
-  res
-    .status(500)
-    .json({ error: "Server error", detail: err?.message || String(err) });
+  res.status(500).json({ error: "Server error", detail: err?.message || String(err) });
 });
 
 // ------------------------------
 // Graceful shutdown (good for Render)
 // ------------------------------
 process.on("SIGINT", async () => {
-  try {
-    await prisma.$disconnect();
-  } catch (e) {}
+  try { await prisma.$disconnect(); } catch (e) {}
   process.exit(0);
 });
 process.on("SIGTERM", async () => {
-  try {
-    await prisma.$disconnect();
-  } catch (e) {}
+  try { await prisma.$disconnect(); } catch (e) {}
   process.exit(0);
 });
 
@@ -503,7 +440,4 @@ const PORT = process.env.PORT || 4001;
 app.listen(PORT, () => {
   console.log(`API listening on ${PORT}`);
   console.log(`Allowed origins: ${allowedOrigins.join(", ")}`);
-  console.log(
-    `PRISMA_CLIENT_ENGINE_TYPE=${process.env.PRISMA_CLIENT_ENGINE_TYPE}`
-  );
 });
