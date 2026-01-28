@@ -14,7 +14,8 @@ const { PrismaClient } = require("@prisma/client");
 // Env checks
 // ------------------------------
 if (!process.env.DATABASE_URL) {
-  throw new Error("Missing DATABASE_URL in server/.env or Render environment");
+  // Render 不会加载 .env 文件，所以必须在 Render Dashboard 配 DATABASE_URL
+  throw new Error("Missing DATABASE_URL in environment variables.");
 }
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -22,9 +23,8 @@ if (!OPENAI_API_KEY) {
   console.warn("[WARN] OPENAI_API_KEY is not set.");
 }
 
-// ✅ Default Prisma engine + DATABASE_URL
+// ✅ Default Prisma client (NO datasourceUrl option in Prisma 7.3.0 here)
 const prisma = new PrismaClient();
-
 
 // ------------------------------
 // App + Middleware
@@ -32,7 +32,7 @@ const prisma = new PrismaClient();
 const app = express();
 app.use(express.json());
 
-// ✅ CORS: allow local + Vercel + optional extra origins
+// ✅ CORS: allow local + Vercel prod + Vercel preview + optional extra origins
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "https://my-plotania-lite.vercel.app",
@@ -47,11 +47,22 @@ const allowedOrigins = Array.from(
   new Set([...DEFAULT_ALLOWED_ORIGINS, ...extraOrigins])
 );
 
+// ✅ Your Vercel preview pattern (随机前缀会变)
+const isVercelPreviewOrigin = (origin) =>
+  /^https:\/\/my-plotania-lite-.*-applehu89890s-projects\.vercel\.app$/.test(
+    origin
+  );
+
 app.use(
   cors({
     origin: function (origin, callback) {
+      // allow server-to-server / curl / Render health checks
       if (!origin) return callback(null, true);
+
       if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      if (isVercelPreviewOrigin(origin)) return callback(null, true);
+
       return callback(
         new Error(
           `CORS blocked: Origin ${origin} not allowed. Allowed: ${allowedOrigins.join(
@@ -75,7 +86,7 @@ app.get("/api/hello", (req, res) => {
   res.json({ message: "Server is running!" });
 });
 
-// ✅ DB check (use this to verify Render can connect to Postgres)
+// ✅ DB check (verify Render can connect to Postgres)
 app.get("/api/db-check", async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -122,6 +133,7 @@ app.post("/api/log", async (req, res) => {
         .json({ error: "sessionId and eventType are required" });
     }
 
+    // Ensure session exists (avoid foreign key violation)
     await prisma.session.upsert({
       where: { id: sessionId },
       update: {},
@@ -476,5 +488,7 @@ const PORT = process.env.PORT || 4001;
 app.listen(PORT, () => {
   console.log(`API listening on ${PORT}`);
   console.log(`Allowed origins: ${allowedOrigins.join(", ")}`);
-  console.log(`PRISMA_CLIENT_ENGINE_TYPE=${process.env.PRISMA_CLIENT_ENGINE_TYPE}`);
+  console.log(
+    `PRISMA_CLIENT_ENGINE_TYPE=${process.env.PRISMA_CLIENT_ENGINE_TYPE}`
+  );
 });
