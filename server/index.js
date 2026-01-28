@@ -24,8 +24,23 @@ if (!OPENAI_API_KEY) {
 }
 
 // ✅ Default Prisma client (NO datasourceUrl option in Prisma 7.3.0 here)
-const prisma = new PrismaClient();
+const { PrismaClient } = require("@prisma/client");
+const { PrismaPg } = require("@prisma/adapter-pg");
+const { Pool } = require("pg");
 
+if (!process.env.DATABASE_URL) {
+  throw new Error("Missing DATABASE_URL in environment variables.");
+}
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Render 有时需要 SSL（取决于你的 Postgres 提供方）
+  // 如果你遇到 SSL 相关报错，再把下面打开：
+  // ssl: { rejectUnauthorized: false },
+});
+
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 // ------------------------------
 // App + Middleware
 // ------------------------------
