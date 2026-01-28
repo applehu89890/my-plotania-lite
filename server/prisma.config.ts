@@ -1,9 +1,7 @@
-import "dotenv/config";
-import { defineConfig, env } from "@prisma/config";
+// server/prisma.config.ts
+import { defineConfig } from "prisma/config";
 
-export default defineConfig({
+export default {
   schema: "prisma/schema.prisma",
-  datasource: {
-    url: env("DATABASE_URL"),
-  },
-});
+  engineType: "binary",
+};

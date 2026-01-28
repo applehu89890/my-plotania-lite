@@ -3,7 +3,11 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
-// ✅ Prisma (default engine, connect via DATABASE_URL)
+// ✅ Only set a default locally (Render env will override)
+if (!process.env.PRISMA_CLIENT_ENGINE_TYPE) {
+  process.env.PRISMA_CLIENT_ENGINE_TYPE = "binary";
+}
+
 const { PrismaClient } = require("@prisma/client");
 
 // ------------------------------
@@ -15,13 +19,13 @@ if (!process.env.DATABASE_URL) {
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 if (!OPENAI_API_KEY) {
-  console.warn(
-    "[WARN] OPENAI_API_KEY is not set. Set it in Render/Env or local .env"
-  );
+  console.warn("[WARN] OPENAI_API_KEY is not set.");
 }
 
-// ✅ IMPORTANT: no adapter-pg, no Pool, no sqlite adapter
-const prisma = new PrismaClient();
+// ✅ Default Prisma engine + DATABASE_URL
+const prisma = new PrismaClient({
+  datasourceUrl: process.env.DATABASE_URL,
+});
 
 // ------------------------------
 // App + Middleware
@@ -35,7 +39,6 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "https://my-plotania-lite.vercel.app",
 ];
 
-// You can set: ALLOWED_ORIGINS="https://xxx.vercel.app,https://yyy.onrender.com"
 const extraOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((s) => s.trim())
@@ -48,7 +51,6 @@ const allowedOrigins = Array.from(
 app.use(
   cors({
     origin: function (origin, callback) {
-      // allow non-browser clients (curl/postman/no origin)
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
       return callback(
@@ -70,19 +72,26 @@ app.use(
 app.get("/health", (req, res) => res.json({ ok: true }));
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-// Basic hello
 app.get("/api/hello", (req, res) => {
   res.json({ message: "Server is running!" });
 });
 
+// ✅ DB check (use this to verify Render can connect to Postgres)
+app.get("/api/db-check", async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ ok: true, db: "connected" });
+  } catch (err) {
+    console.error("db-check error:", err);
+    res.status(500).json({ ok: false, error: "db not connected" });
+  }
+});
+
 // ------------------------------
 // Session: POST /api/session/start
-// - create a session row and return sessionId
 // ------------------------------
 app.post("/api/session/start", async (req, res) => {
   try {
-    // 你现在 schema 的 Session 可能只有 id/createdAt
-    // 如果你未来加 userAgent/referrer/ip，再在 data 里存进去即可
     const session = await prisma.session.create({ data: {} });
     res.json({ sessionId: session.id });
   } catch (err) {
@@ -92,14 +101,7 @@ app.post("/api/session/start", async (req, res) => {
 });
 
 // ------------------------------
-// Logging: POST /api/log  (Prisma -> Postgres)
-// body:
-// {
-//   sessionId, eventType,
-//   documentId?, toolName?,
-//   selectionStart?, selectionEnd?, docLength?,
-//   payloadJson? (object) OR payload? (object)
-// }
+// Logging: POST /api/log
 // ------------------------------
 app.post("/api/log", async (req, res) => {
   try {
@@ -112,7 +114,7 @@ app.post("/api/log", async (req, res) => {
       selectionEnd,
       docLength,
       payloadJson,
-      payload, // backward compatible
+      payload,
     } = req.body || {};
 
     if (!sessionId || !eventType) {
@@ -121,7 +123,6 @@ app.post("/api/log", async (req, res) => {
         .json({ error: "sessionId and eventType are required" });
     }
 
-    // ✅ 防炸：session 不存在就补一个（避免外键错误）
     await prisma.session.upsert({
       where: { id: sessionId },
       update: {},
@@ -149,8 +150,7 @@ app.post("/api/log", async (req, res) => {
 });
 
 // ------------------------------
-// AI Assist: POST /api/assist   (whole text)
-// body: { text, mode }
+// AI Assist: POST /api/assist
 // ------------------------------
 app.post("/api/assist", async (req, res) => {
   console.log("🔥 /api/assist called with:", req.body);
@@ -223,11 +223,10 @@ app.post("/api/assist", async (req, res) => {
 
     const originalWordCount = text.trim().split(/\s+/).length;
     const suggestionWordCount = aiText.trim().split(/\s+/).length;
-    const wordDiff = suggestionWordCount - originalWordCount;
 
     return res.json({
       result: aiText,
-      meta: { wordDiff },
+      meta: { wordDiff: suggestionWordCount - originalWordCount },
     });
   } catch (err) {
     console.error("Server error (/api/assist):", err);
@@ -237,7 +236,6 @@ app.post("/api/assist", async (req, res) => {
 
 // ------------------------------
 // Transform: POST /llm/transform
-// body: { action, selectedText, contextBefore, contextAfter }
 // ------------------------------
 app.post("/llm/transform", async (req, res) => {
   console.log("🔥 /llm/transform called with:", req.body);
@@ -294,7 +292,6 @@ Context after:
 ${contextAfter || "(none)"}
 
 ${instruction}
-Please transform ONLY the selected text, so that it still fits smoothly into the given context.
 Return only the revised version of the selected text, with no additional commentary.
     `.trim();
 
@@ -332,11 +329,10 @@ Return only the revised version of the selected text, with no additional comment
 
     const originalWordCount = selectedText.trim().split(/\s+/).length;
     const suggestionWordCount = aiText.trim().split(/\s+/).length;
-    const wordDiff = suggestionWordCount - originalWordCount;
 
     return res.json({
       result: aiText,
-      meta: { wordDiff },
+      meta: { wordDiff: suggestionWordCount - originalWordCount },
     });
   } catch (err) {
     console.error("Server error (/llm/transform):", err);
@@ -346,8 +342,6 @@ Return only the revised version of the selected text, with no additional comment
 
 // ------------------------------
 // Persona Feedback: POST /llm/feedback
-// body: { persona, text }
-// returns JSON array
 // ------------------------------
 app.post("/llm/feedback", async (req, res) => {
   console.log("🔥 /llm/feedback called with:", req.body);
@@ -399,15 +393,8 @@ ${personaPrompt}
 Here is the text the author wrote:
 """${text}"""
 
-Provide 3–6 concrete comments in JSON format.
-Each comment should be an object with keys:
-- "id": a short unique string id (like "c1", "c2", etc.)
-- "persona": the persona id you are using (e.g. "${persona}")
-- "excerpt": a short quoted excerpt from the text that you are commenting on
-- "comment": what you notice (what's working or not)
-- "suggestion": a specific suggestion for improvement
-
-Return ONLY a JSON array, no explanation, no surrounding text.
+Return ONLY a JSON array (3–6 items). Each item has:
+"id", "persona", "excerpt", "comment", "suggestion".
 `.trim();
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -437,7 +424,6 @@ Return ONLY a JSON array, no explanation, no surrounding text.
     const data = await response.json();
     let content = data.choices?.[0]?.message?.content?.trim() || "[]";
 
-    // strip ```json fences if any
     if (content.startsWith("```")) {
       content = content.replace(/```json/gi, "").replace(/```/g, "").trim();
     }
@@ -459,7 +445,7 @@ Return ONLY a JSON array, no explanation, no surrounding text.
 });
 
 // ------------------------------
-// Centralized error handler (CORS errors etc.)
+// Error handler
 // ------------------------------
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err?.message || err);
@@ -469,10 +455,27 @@ app.use((err, req, res, next) => {
 });
 
 // ------------------------------
+// Graceful shutdown (good for Render)
+// ------------------------------
+process.on("SIGINT", async () => {
+  try {
+    await prisma.$disconnect();
+  } catch (e) {}
+  process.exit(0);
+});
+process.on("SIGTERM", async () => {
+  try {
+    await prisma.$disconnect();
+  } catch (e) {}
+  process.exit(0);
+});
+
+// ------------------------------
 // Start
 // ------------------------------
 const PORT = process.env.PORT || 4001;
 app.listen(PORT, () => {
   console.log(`API listening on ${PORT}`);
   console.log(`Allowed origins: ${allowedOrigins.join(", ")}`);
+  console.log(`PRISMA_CLIENT_ENGINE_TYPE=${process.env.PRISMA_CLIENT_ENGINE_TYPE}`);
 });
