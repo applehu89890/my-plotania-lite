@@ -1,5 +1,5 @@
 // App.tsx
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import EditorWithToolbar from "./EditorWithToolbar";
 import "./styles.css";
 import { logEvent } from "./logging";
@@ -97,15 +97,8 @@ const clip = (s: string, max = 120) => {
 };
 
 function App() {
-  /* ---------------- Session / Document IDs for logging ---------------- */
-
-  const [sessionId] = useState(() => {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-      return (crypto as any).randomUUID();
-    }
-    return "sess-" + Math.random().toString(36).slice(2);
-  });
-
+  /* ---------------- Document IDs for logging ---------------- */
+  // sessionId is handled inside logging.ts via /api/session/start + localStorage
   const [documentId] = useState("doc-1");
 
   /* ---------------- Existing State ---------------- */
@@ -153,18 +146,37 @@ function App() {
     setHumanChars(Math.max(total - aiChars, 0));
   };
 
+  /* ---------------- One-time: session_start + page_view ---------------- */
+
+  const didBootLogRef = useRef(false);
+  useEffect(() => {
+    if (didBootLogRef.current) return;
+    didBootLogRef.current = true;
+
+    // sessionId handled in logging.ts; this call will create session if missing
+    logEvent({
+      documentId,
+      eventType: "session_start",
+      payloadJson: { userAgent: navigator.userAgent, referrer: document.referrer },
+    });
+
+    logEvent({
+      documentId,
+      eventType: "page_view",
+      payloadJson: { path: window.location.pathname },
+    });
+  }, [documentId]);
+
   /* ---------------- Utility: Save ---------------- */
 
   const handleManualSave = () => {
     setSaveStatus("saving");
 
-    // ✅ logging — Save click
     logEvent({
-      sessionId,
       documentId,
       eventType: "save_click",
       docLength: editorText.length,
-      payload: {
+      payloadJson: {
         title: docTitle,
       },
     });
@@ -176,26 +188,6 @@ function App() {
       );
     }, 500);
   };
-
-  /* ---------------- Utility: Get selected text ---------------- */
-  // const getSelectedOrFullText = (): string => {
-  //   if (!editorInstance) return editorText;
-
-  //   const editor = editorInstance;
-  //   const { from, to } = editor.state.selection;
-
-  //   let selected = editor.state.doc.textBetween(from, to, "\n");
-
-  //   if (!selected || selected.trim().length === 0) {
-  //     selected = editor.state.doc.textBetween(
-  //       0,
-  //       editor.state.doc.content.size,
-  //       "\n"
-  //     );
-  //   }
-
-  //   return selected.trim();
-  // };
 
   /* ---------------- Module A: build transform payload ---------------- */
 
@@ -243,12 +235,30 @@ function App() {
   /* ---------------- Module A: transform call (BACKEND) ---------------- */
 
   const callBackend = async (mode: ActionMode) => {
+    let payload: any = null;
+
     try {
       setLoadingAction(mode);
 
-      const payload: any = buildTransformPayload(mode);
+      // 1) tool_click
+      logEvent({
+        documentId,
+        eventType: "tool_click",
+        toolName: mode,
+        docLength: editorText.length,
+      });
+
+      payload = buildTransformPayload(mode);
       if (!payload) {
         setImproveText("Editor is not ready yet. Please try again.");
+        // tool_error (editor not ready)
+        logEvent({
+          documentId,
+          eventType: "tool_error",
+          toolName: mode,
+          docLength: editorText.length,
+          payloadJson: { message: "editor_not_ready" },
+        });
         return;
       }
 
@@ -259,17 +269,17 @@ function App() {
       );
       setImproveText("Generating a suggestion…");
 
-      // ✅ logging — AI tool usage
+      // 2) tool_request
       logEvent({
-        sessionId,
         documentId,
-        eventType: "ai_tool",
+        eventType: "tool_request",
         toolName: mode,
         selectionStart: payload.from,
         selectionEnd: payload.to,
         docLength: payload.fullText.length,
-        payload: {
+        payloadJson: {
           selectedTextLength: payload.selectedText.length,
+          selectedIsFullDoc: payload.selectedText.trim() === payload.fullText.trim(),
         },
       });
 
@@ -292,6 +302,16 @@ function App() {
 
       if (!res.ok) {
         console.error("Backend /llm/transform error:", raw);
+        // 4) tool_error
+        logEvent({
+          documentId,
+          eventType: "tool_error",
+          toolName: mode,
+          selectionStart: payload.from,
+          selectionEnd: payload.to,
+          docLength: payload.fullText.length,
+          payloadJson: { message: `backend_${res.status}`, detail: raw.slice(0, 500) },
+        });
         throw new Error(`Backend error ${res.status}: ${raw}`);
       }
 
@@ -308,8 +328,32 @@ function App() {
 
       // ✅ "What needs improvement": show AI suggestion (before Replace)
       setImproveText(aiText || "(No output returned. Please try again.)");
+
+      // 3) tool_response
+      const originalWordCount = payload.selectedText.trim().split(/\s+/).filter(Boolean).length;
+      const suggestionWordCount = aiText.trim().split(/\s+/).filter(Boolean).length;
+      logEvent({
+        documentId,
+        eventType: "tool_response",
+        toolName: mode,
+        selectionStart: payload.from,
+        selectionEnd: payload.to,
+        docLength: payload.fullText.length,
+        payloadJson: {
+          wordDiff: suggestionWordCount - originalWordCount,
+          suggestionLength: aiText.length,
+        },
+      });
     } catch (err: any) {
       setImproveText(`Backend call failed: ${err.message}`);
+      // (tool_error already logged above on non-OK; this is a fallback)
+      logEvent({
+        documentId,
+        eventType: "tool_error",
+        toolName: mode,
+        docLength: editorText.length,
+        payloadJson: { message: String(err?.message || err) },
+      });
     } finally {
       setLoadingAction(null);
     }
@@ -361,12 +405,11 @@ function App() {
 
     // ✅ logging — accept suggestion
     logEvent({
-      sessionId,
       documentId,
       eventType: "accept_suggestion",
       toolName: mode,
       docLength: newText.length,
-      payload: {
+      payloadJson: {
         originalLength: original.length,
         suggestionLength: suggestion.length,
       },
@@ -376,22 +419,20 @@ function App() {
   const handleDismissSuggestion = () => {
     if (aiSuggestion) {
       setWorkingText(
-        `Dismissed: ${modeToEnglish(aiSuggestion.mode)} (${MODE_LABEL[
-          aiSuggestion.mode
-        ]}). The suggestion was not applied.`
+        `Dismissed: ${modeToEnglish(aiSuggestion.mode)} (${MODE_LABEL[aiSuggestion.mode]}). The suggestion was not applied.`
       );
-      setImproveText(
-        "You can select a passage again and generate a new suggestion."
-      );
+      setImproveText("You can select a passage again and generate a new suggestion.");
     }
+
+    const mode = aiSuggestion?.mode;
 
     setAiSuggestion(null);
 
-    // optional: log dismiss
+    // ✅ log dismiss
     logEvent({
-      sessionId,
       documentId,
       eventType: "dismiss_suggestion",
+      toolName: mode,
       docLength: editorText.length,
     });
   };
@@ -400,6 +441,15 @@ function App() {
 
   const handleGetFeedback = async (personaId: PersonaId) => {
     if (!editorInstance) return;
+
+    // click
+    logEvent({
+      documentId,
+      eventType: "persona_click_get_feedback",
+      toolName: personaId,
+      docLength: editorText.length,
+      payloadJson: { personaId },
+    });
 
     const editor = editorInstance;
     const { from, to } = editor.state.selection;
@@ -419,21 +469,28 @@ function App() {
 
     if (!selectedPassage || selectedPassage.trim().length === 0) {
       setImproveText("Please select a passage or write something first.");
+      logEvent({
+        documentId,
+        eventType: "persona_feedback_error",
+        toolName: personaId,
+        docLength: editorText.length,
+        payloadJson: { personaId, message: "empty_text" },
+      });
       return;
     }
 
     setLastFeedbackSelection({ from: feedbackFrom, to: feedbackTo });
 
-    // ✅ logging — request persona feedback
+    // request
     logEvent({
-      sessionId,
       documentId,
       eventType: "persona_feedback_request",
       toolName: personaId,
       selectionStart: feedbackFrom,
       selectionEnd: feedbackTo,
       docLength: editor.state.doc.textBetween(0, fullSize, "\n").length,
-      payload: {
+      payloadJson: {
+        personaId,
         excerptLength: selectedPassage.length,
       },
     });
@@ -454,6 +511,13 @@ function App() {
 
       if (!res.ok) {
         console.error("Persona feedback error:", raw);
+        logEvent({
+          documentId,
+          eventType: "persona_feedback_error",
+          toolName: personaId,
+          docLength: editorText.length,
+          payloadJson: { personaId, message: `backend_${res.status}`, detail: raw.slice(0, 500) },
+        });
         return;
       }
 
@@ -471,26 +535,41 @@ function App() {
 
       setPersonaComments((prev) => [...prev, ...comments]);
 
-      // optional: log how many comments returned
+      // success
       logEvent({
-        sessionId,
+        documentId,
+        eventType: "persona_feedback_success",
+        toolName: personaId,
+        docLength: editor.state.doc.textBetween(0, fullSize, "\n").length,
+        payloadJson: { personaId, count: comments.length },
+      });
+
+      // keep your old event name too (optional, can remove)
+      logEvent({
         documentId,
         eventType: "persona_feedback_received",
         toolName: personaId,
         docLength: editor.state.doc.textBetween(0, fullSize, "\n").length,
-        payload: {
+        payloadJson: {
           commentsCount: comments.length,
         },
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Persona feedback error:", err);
+      logEvent({
+        documentId,
+        eventType: "persona_feedback_error",
+        toolName: personaId,
+        docLength: editorText.length,
+        payloadJson: { personaId, message: String(err?.message || err) },
+      });
     } finally {
       setPersonaLoadingId(null);
     }
   };
 
   /** click excerpt to highlight remembered selection */
-  const handleExcerptClick = () => {
+  const handleExcerptClick = (personaId: PersonaId, commentId: string) => {
     if (!editorInstance || !lastFeedbackSelection) return;
 
     const { from, to } = lastFeedbackSelection;
@@ -498,40 +577,41 @@ function App() {
     editorInstance.chain().focus().setTextSelection({ from, to }).run();
 
     logEvent({
-      sessionId,
       documentId,
-      eventType: "persona_excerpt_click",
+      eventType: "persona_highlight_excerpt",
+      toolName: personaId,
       docLength: editorInstance.getText().length,
+      payloadJson: { personaId, commentId, from, to },
     });
   };
 
   /** Mark resolved / Hide */
 
-  const handleResolveComment = (id: string) => {
+  const handleResolveComment = (personaId: PersonaId, id: string) => {
     setPersonaComments((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status: "resolved" } : c))
     );
 
     logEvent({
-      sessionId,
       documentId,
-      eventType: "persona_comment_resolved",
+      eventType: "persona_mark_resolved",
+      toolName: personaId,
       docLength: editorText.length,
-      payload: { commentId: id },
+      payloadJson: { personaId, commentId: id },
     });
   };
 
-  const handleHideComment = (id: string) => {
+  const handleHideComment = (personaId: PersonaId, id: string) => {
     setPersonaComments((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status: "hidden" } : c))
     );
 
     logEvent({
-      sessionId,
       documentId,
-      eventType: "persona_comment_hidden",
+      eventType: "persona_hide_comment",
+      toolName: personaId,
       docLength: editorText.length,
-      payload: { commentId: id },
+      payloadJson: { personaId, commentId: id },
     });
   };
 
@@ -558,11 +638,10 @@ function App() {
               setSaveStatus("editing");
 
               logEvent({
-                sessionId,
                 documentId,
                 eventType: "title_change",
                 docLength: editorText.length,
-                payload: { title: e.target.value },
+                payloadJson: { title: e.target.value },
               });
             }}
             placeholder="Document title"
@@ -619,11 +698,10 @@ function App() {
             onChange={(text: string) => {
               setEditorText(text);
               setSaveStatus("editing");
-
               handleDocumentChange(text);
 
+              // NOTE: this can be chatty; keep for now, you can throttle later
               logEvent({
-                sessionId,
                 documentId,
                 eventType: "editor_change",
                 docLength: text.length,
@@ -653,8 +731,8 @@ function App() {
                   Mode: <strong>{aiSuggestion.mode}</strong>
                   <span style={{ marginLeft: 8 }}>
                     Δwords:
-                    {aiSuggestion.suggestion.trim().split(/\s+/).length -
-                      aiSuggestion.original.trim().split(/\s+/).length}
+                    {aiSuggestion.suggestion.trim().split(/\s+/).filter(Boolean).length -
+                      aiSuggestion.original.trim().split(/\s+/).filter(Boolean).length}
                   </span>
                 </p>
               </div>
@@ -667,9 +745,7 @@ function App() {
 
                 <div className="suggestion-column">
                   <h3>AI Suggestion</h3>
-                  <pre className="suggestion-text">
-                    {aiSuggestion.suggestion}
-                  </pre>
+                  <pre className="suggestion-text">{aiSuggestion.suggestion}</pre>
                 </div>
               </div>
 
@@ -677,10 +753,7 @@ function App() {
                 <button className="primary-btn" onClick={handleAcceptSuggestion}>
                   Replace
                 </button>
-                <button
-                  className="secondary-btn"
-                  onClick={handleDismissSuggestion}
-                >
+                <button className="secondary-btn" onClick={handleDismissSuggestion}>
                   Dismiss
                 </button>
               </div>
@@ -695,8 +768,7 @@ function App() {
             <div className="attribution-cards">
               <div
                 className={
-                  "attrib-card" +
-                  (aiPercent >= humanPercent ? " attrib-card-active" : "")
+                  "attrib-card" + (aiPercent >= humanPercent ? " attrib-card-active" : "")
                 }
               >
                 <div className="attrib-label-row">
@@ -708,8 +780,7 @@ function App() {
 
               <div
                 className={
-                  "attrib-card" +
-                  (humanPercent > aiPercent ? " attrib-card-active" : "")
+                  "attrib-card" + (humanPercent > aiPercent ? " attrib-card-active" : "")
                 }
               >
                 <div className="attrib-label-row">
@@ -728,11 +799,10 @@ function App() {
                   setShowAIOrigins(e.target.checked);
 
                   logEvent({
-                    sessionId,
                     documentId,
                     eventType: "toggle_ai_origins",
                     docLength: editorText.length,
-                    payload: { value: e.target.checked },
+                    payloadJson: { value: e.target.checked },
                   });
                 }}
               />
@@ -777,9 +847,7 @@ function App() {
                     }`}
                   >
                     <div className="persona-comment-header">
-                      <span className="persona-pill">
-                        {getPersonaName(c.persona)}
-                      </span>
+                      <span className="persona-pill">{getPersonaName(c.persona)}</span>
                       {c.status === "resolved" && (
                         <span className="persona-resolved-label">Resolved</span>
                       )}
@@ -787,7 +855,7 @@ function App() {
 
                     <div
                       className="persona-excerpt"
-                      onClick={handleExcerptClick}
+                      onClick={() => handleExcerptClick(c.persona, c.id)}
                     >
                       “{c.excerpt}”
                     </div>
@@ -804,14 +872,14 @@ function App() {
                       {c.status === "open" && (
                         <button
                           className="persona-action-btn"
-                          onClick={() => handleResolveComment(c.id)}
+                          onClick={() => handleResolveComment(c.persona, c.id)}
                         >
                           Mark resolved
                         </button>
                       )}
                       <button
                         className="persona-action-btn secondary"
-                        onClick={() => handleHideComment(c.id)}
+                        onClick={() => handleHideComment(c.persona, c.id)}
                       >
                         Hide
                       </button>
