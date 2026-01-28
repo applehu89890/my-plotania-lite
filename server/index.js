@@ -3,25 +3,33 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
+// ✅ Prisma (default engine, connect via DATABASE_URL)
 const { PrismaClient } = require("@prisma/client");
-const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 
 // ------------------------------
-// Prisma (SQLite - dev/local friendly)
-// NOTE: On cloud, SQLite file can be unstable; later migrate to Postgres.
+// Env checks
 // ------------------------------
-const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL || "file:./dev.db",
-});
-const prisma = new PrismaClient({ adapter });
+if (!process.env.DATABASE_URL) {
+  throw new Error("Missing DATABASE_URL in server/.env or Render environment");
+}
+
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+if (!OPENAI_API_KEY) {
+  console.warn(
+    "[WARN] OPENAI_API_KEY is not set. Set it in Render/Env or local .env"
+  );
+}
+
+// ✅ IMPORTANT: no adapter-pg, no Pool, no sqlite adapter
+const prisma = new PrismaClient();
 
 // ------------------------------
-// App + Middleware (ONLY ONCE, BEFORE routes)
+// App + Middleware
 // ------------------------------
 const app = express();
 app.use(express.json());
 
-// ✅ CORS: allow local + your Vercel domain + optional extra origin (Render deploy etc.)
+// ✅ CORS: allow local + Vercel + optional extra origins
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "https://my-plotania-lite.vercel.app",
@@ -56,14 +64,6 @@ app.use(
   })
 );
 
-// Node 18+ has fetch
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_API_KEY) {
-  console.warn(
-    "[WARN] OPENAI_API_KEY is not set. Set it in Render/Env or local .env"
-  );
-}
-
 // ------------------------------
 // Health checks
 // ------------------------------
@@ -76,7 +76,30 @@ app.get("/api/hello", (req, res) => {
 });
 
 // ------------------------------
-// Logging: POST /api/log  (Prisma -> SQLite)
+// Session: POST /api/session/start
+// - create a session row and return sessionId
+// ------------------------------
+app.post("/api/session/start", async (req, res) => {
+  try {
+    // 你现在 schema 的 Session 可能只有 id/createdAt
+    // 如果你未来加 userAgent/referrer/ip，再在 data 里存进去即可
+    const session = await prisma.session.create({ data: {} });
+    res.json({ sessionId: session.id });
+  } catch (err) {
+    console.error("session start error:", err);
+    res.status(500).json({ error: "failed to start session" });
+  }
+});
+
+// ------------------------------
+// Logging: POST /api/log  (Prisma -> Postgres)
+// body:
+// {
+//   sessionId, eventType,
+//   documentId?, toolName?,
+//   selectionStart?, selectionEnd?, docLength?,
+//   payloadJson? (object) OR payload? (object)
+// }
 // ------------------------------
 app.post("/api/log", async (req, res) => {
   try {
@@ -88,7 +111,8 @@ app.post("/api/log", async (req, res) => {
       selectionStart,
       selectionEnd,
       docLength,
-      payload,
+      payloadJson,
+      payload, // backward compatible
     } = req.body || {};
 
     if (!sessionId || !eventType) {
@@ -97,16 +121,23 @@ app.post("/api/log", async (req, res) => {
         .json({ error: "sessionId and eventType are required" });
     }
 
+    // ✅ 防炸：session 不存在就补一个（避免外键错误）
+    await prisma.session.upsert({
+      where: { id: sessionId },
+      update: {},
+      create: { id: sessionId },
+    });
+
     const log = await prisma.logEvent.create({
       data: {
         sessionId,
-        documentId,
+        documentId: documentId || null,
         eventType,
-        toolName,
-        selectionStart,
-        selectionEnd,
-        docLength,
-        payloadJson: JSON.stringify(payload ?? {}),
+        toolName: toolName || null,
+        selectionStart: selectionStart ?? null,
+        selectionEnd: selectionEnd ?? null,
+        docLength: docLength ?? null,
+        payloadJson: payloadJson ?? payload ?? null,
       },
     });
 
@@ -205,7 +236,7 @@ app.post("/api/assist", async (req, res) => {
 });
 
 // ------------------------------
-// Transform: POST /llm/transform  (selected text only)
+// Transform: POST /llm/transform
 // body: { action, selectedText, contextBefore, contextAfter }
 // ------------------------------
 app.post("/llm/transform", async (req, res) => {
@@ -276,7 +307,10 @@ Return only the revised version of the selected text, with no additional comment
       body: JSON.stringify({
         model: "gpt-4o",
         messages: [
-          { role: "system", content: "You are a helpful creative-writing assistant." },
+          {
+            role: "system",
+            content: "You are a helpful creative-writing assistant.",
+          },
           { role: "user", content: prompt },
         ],
         temperature: 0.8,
@@ -425,11 +459,13 @@ Return ONLY a JSON array, no explanation, no surrounding text.
 });
 
 // ------------------------------
-// (Optional) Centralized error handler for CORS errors etc.
+// Centralized error handler (CORS errors etc.)
 // ------------------------------
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err?.message || err);
-  res.status(500).json({ error: "Server error", detail: err?.message || String(err) });
+  res
+    .status(500)
+    .json({ error: "Server error", detail: err?.message || String(err) });
 });
 
 // ------------------------------
