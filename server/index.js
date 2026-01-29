@@ -135,16 +135,27 @@ app.post("/api/log", async (req, res) => {
         .json({ error: "sessionId and eventType are required" });
     }
 
+    // ✅ 确保 session 一定存在（避免 FK 错误）
     await prisma.session.upsert({
       where: { id: sessionId },
       update: {},
       create: { id: sessionId },
     });
 
+    // ✅ 核心修复：只在 Document 真存在时才写 documentId
+    let safeDocumentId = null;
+    if (documentId) {
+      const exists = await prisma.document.findUnique({
+        where: { id: documentId },
+        select: { id: true },
+      });
+      if (exists) safeDocumentId = documentId;
+    }
+
     const log = await prisma.logEvent.create({
       data: {
         sessionId,
-        documentId: documentId || null,
+        documentId: safeDocumentId, // ← 关键
         eventType,
         toolName: toolName || null,
         selectionStart: selectionStart ?? null,
@@ -160,6 +171,7 @@ app.post("/api/log", async (req, res) => {
     return res.status(500).json({ error: "log failed" });
   }
 });
+
 
 // ------------------------------
 // AI Assist: POST /api/assist
